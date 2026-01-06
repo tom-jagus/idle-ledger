@@ -1,0 +1,36 @@
+[project]
+name = "idle-ledger"
+version = "0.1.0"
+description = "Automatic activity vs break tracking for Linux (Wayland) and Windows."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "platformdirs>=4.3.10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.19.1",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.10",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.14"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
