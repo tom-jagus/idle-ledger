@@ -32,7 +32,6 @@ Prove we can read signals and classify state on your current Linux setup.
 
 - `idle-ledger debug`:
   - prints: `idle_seconds`, `locked`, `inhibited`, `state`, totals
-  - prints reason for decision
 - Provider MVP using:
   - `loginctl` for session hints
   - `systemd-inhibit --list` for inhibitors

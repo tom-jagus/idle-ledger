@@ -11,6 +11,7 @@ class State(Enum):
 
 DEFAULT_THRESHOLD_SECONDS: Final[int] = 300
 DEFAULT_POLL_SECONDS: Final[float] = 2.0
+DEFAULT_JOURNAL_HEARTBEAT_SECONDS: Final[int] = 30
 
 
 @dataclass
@@ -18,6 +19,7 @@ class Config:
     threshold_seconds: int = DEFAULT_THRESHOLD_SECONDS
     treat_inhibitor_as_activity: bool = True
     poll_seconds: float = DEFAULT_POLL_SECONDS
+    journal_heartbeat_seconds: int = DEFAULT_JOURNAL_HEARTBEAT_SECONDS
 
 
 @dataclass

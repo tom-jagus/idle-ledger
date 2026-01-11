@@ -1,0 +1,16 @@
+[Unit]
+Description=idle-ledger activity/break tracker
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/idle-ledger run
+Restart=on-failure
+RestartSec=3
+
+# Ensure the user has a sane environment
+Environment=XDG_CONFIG_HOME=%h/.config
+Environment=XDG_DATA_HOME=%h/.local/share
+
+[Install]
+WantedBy=default.target

@@ -16,6 +16,32 @@ class BlockManager:
         self.blocks: List[Block] = []
         self._current_block: Block | None = None
 
+    def get_current_block(self) -> Block | None:
+        return self._current_block
+
+    def get_current_state(self) -> State | None:
+        if self._current_block is not None:
+            return self._current_block.type
+        if self.blocks:
+            return self.blocks[-1].type
+        return None
+
+    def close_current(self, end: datetime) -> Block | None:
+        if self._current_block is None:
+            return None
+        self._current_block.end = end
+        closed = self._current_block
+        self.blocks.append(closed)
+        self._current_block = None
+        return closed
+
+    def open_new(self, state: State, start: datetime) -> None:
+        self._current_block = Block(type=state, start=start, end=None)
+
+    def load(self, *, blocks: list[Block], current_block: Block | None) -> None:
+        self.blocks = blocks
+        self._current_block = current_block
+
     def transition(
         self, new_state: State, now: datetime, threshold_subtract: datetime | None = None
     ):
@@ -56,6 +82,15 @@ class BlockManager:
             duration = int((end - block.start).total_seconds())
 
             if block.type == State.ACTIVITY:
+                activity += duration
+            else:
+                break_time += duration
+
+        if self._current_block:
+            end = self._current_block.end or datetime.now(self._current_block.start.tzinfo)
+            duration = int((end - self._current_block.start).total_seconds())
+
+            if self._current_block.type == State.ACTIVITY:
                 activity += duration
             else:
                 break_time += duration

@@ -29,31 +29,44 @@ A shared state machine converts snapshots into `activity`/`break` blocks and per
 
 ## Data output
 
-Daily file: `YYYY-MM-DD.json`
+Base data dir:
+- Linux: `~/.local/share/idle-ledger/` (or `$XDG_DATA_HOME/idle-ledger/`)
+
+Files:
+- Transition logs: `transition-logs/YYYY-MM-DD.jsonl`
+- Daily journal: `daily-journal/YYYY-MM-DD.json`
 
 Contains:
 
 - totals (`activity_seconds`, `break_seconds`)
 - list of blocks with start/end timestamps
 
-Write is **atomic** (temp + fsync + rename). Crash resume continues from today’s file.
+Write is **atomic** (temp + fsync + rename). Journals are checkpointed periodically so crashes lose at most ~`journal_heartbeat_seconds` of precision.
+
+## Installation (Linux)
+
+User-local install (no venv):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tom-jagus/idle-ledger/main/install.sh | sh
+```
+
+This installs `idle-ledger` into `~/.local/bin/`.
 
 ## Installation (dev)
 
-This project is intentionally small and boring.
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
 
-- Python: 3.11+ (target)
-- Packaging: TBD (uv/poetry/pip) — keep it simple early
+## CLI
 
-## CLI (planned)
-
-| Command                                       | Purpose                                                    |
-| --------------------------------------------- | ---------------------------------------------------------- |
-| `idle-ledger debug`                           | Print live snapshot + derived state + totals (Linux first) |
-| `idle-ledger run`                             | Run tracker daemon (headless)                              |
-| `idle-ledger summarize week --week YYYY-WW`   | Generate weekly summary JSON                               |
-| `idle-ledger summarize month --month YYYY-MM` | Generate monthly summary JSON                              |
-| `idle-ledger export csv --range ...`          | Optional: export for analysis                              |
+| Command             | Purpose |
+| ------------------- | ------- |
+| `idle-ledger debug` | Print live snapshot + derived state + totals |
+| `idle-ledger run`   | Run tracker loop in foreground (Ctrl+C to stop) |
 
 ## Configuration
 
@@ -65,8 +78,28 @@ Config file (TOML):
 Key settings:
 
 - `threshold_seconds` (default 300)
-- `poll_seconds` (default 2–5)
+- `poll_seconds` (default 2.0)
+- `journal_heartbeat_seconds` (default 30, min 30)
 - `treat_inhibitor_as_activity` (default true)
+
+## systemd (user service)
+
+An example unit is included in `systemd/idle-ledger.service`.
+
+```bash
+idle-ledger init
+
+# (or, if you want to overwrite an existing unit)
+idle-ledger init --force
+```
+
+Manual alternative:
+```bash
+mkdir -p ~/.config/systemd/user
+cp systemd/idle-ledger.service ~/.config/systemd/user/idle-ledger.service
+systemctl --user daemon-reload
+systemctl --user enable --now idle-ledger.service
+```
 
 ## Roadmap
 

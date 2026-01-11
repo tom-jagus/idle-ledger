@@ -3,10 +3,13 @@ name = "idle-ledger"
 version = "0.1.0"
 description = "Automatic activity vs break tracking for Linux (Wayland) and Windows."
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 dependencies = [
     "platformdirs>=4.3.10",
 ]
+
+[project.scripts]
+idle-ledger = "idle_ledger.cli.main:main"
 
 [project.optional-dependencies]
 dev = [
@@ -18,14 +21,14 @@ dev = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py314"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
 ignore = []
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
