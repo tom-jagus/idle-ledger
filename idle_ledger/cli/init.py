@@ -15,13 +15,13 @@ def _systemd_user_dir() -> Path:
 
 
 def _detect_exec_start() -> str:
-    """Return an ExecStart string usable by systemd.
+    """Return an ExecStart string usable by systemd."""
 
-    Preference:
-    1) Absolute path to `idle-ledger` script on PATH
-    2) sys.executable -m idle_ledger.cli run
-    """
+    # Prefer the user-local install location.
+    if (Path.home() / ".local" / "bin" / "idle-ledger").exists():
+        return "%h/.local/bin/idle-ledger run"
 
+    # Next preference: absolute path to idle-ledger on PATH.
     exe = shutil.which("idle-ledger")
     if exe:
         return f"{exe} run"
@@ -61,6 +61,20 @@ def main(*, force: bool = False) -> int:
         print("systemctl not found; cannot enable systemd user service")
         return 1
 
+    # Ensure config + data dirs exist.
+    try:
+        from idle_ledger.store import (
+            ensure_default_config_file,
+            get_daily_journal_dir,
+            get_transition_logs_dir,
+        )
+
+        ensure_default_config_file()
+        get_daily_journal_dir().mkdir(parents=True, exist_ok=True)
+        get_transition_logs_dir().mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        print(f"Warning: failed to pre-create config/data dirs: {e}")
+
     unit_dir = _systemd_user_dir()
     unit_path = unit_dir / "idle-ledger.service"
 
@@ -77,6 +91,16 @@ def main(*, force: bool = False) -> int:
     try:
         subprocess.run([systemctl, "--user", "daemon-reload"], check=True)
         subprocess.run([systemctl, "--user", "enable", "--now", "idle-ledger.service"], check=True)
+        enabled = subprocess.run(
+            [systemctl, "--user", "is-enabled", "idle-ledger.service"],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        active = subprocess.run(
+            [systemctl, "--user", "is-active", "idle-ledger.service"],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
     except subprocess.CalledProcessError as e:
         print(f"systemctl failed: {e}")
         print(f"Unit written to: {unit_path}")
@@ -85,7 +109,12 @@ def main(*, force: bool = False) -> int:
         print("  systemctl --user enable --now idle-ledger.service")
         return 1
 
-    print(f"Installed and enabled: {unit_path}")
+    print(f"Installed: {unit_path}")
+    print(f"systemd enabled: {enabled}")
+    print(f"systemd active: {active}")
+
+    print("Note: user services start on login by default.")
+
     print("Check status:")
     print("  systemctl --user status idle-ledger.service")
     return 0

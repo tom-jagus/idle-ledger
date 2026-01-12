@@ -15,7 +15,8 @@ SCHEMA_VERSION = 1
 
 
 def _block_seconds(*, start: datetime, end: datetime) -> int:
-    return int((end - start).total_seconds())
+    # Derived field for humans: never negative.
+    return max(0, int((end - start).total_seconds()))
 
 
 def _block_to_dict(

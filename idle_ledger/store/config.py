@@ -45,6 +45,12 @@ def default_config_toml(config: Config | None = None) -> str:
         f"journal_heartbeat_seconds = {cfg.journal_heartbeat_seconds}\n"
         f"treat_inhibitor_as_activity = {str(cfg.treat_inhibitor_as_activity).lower()}\n"
         "\n"
+        "[summary]\n"
+        "# Daily activity target (minutes)\n"
+        f"daily_target_minutes = {cfg.daily_target_minutes}\n"
+        '# Week start: "iso" (Mon) or "sunday"\n'
+        f'week_start = "{cfg.week_start}"\n'
+        "\n"
         "[linux]\n"
         "# Prefer hypridle (Hyprland) when installed\n"
         "prefer_hypridle = true\n"
@@ -96,6 +102,18 @@ def load_config(path: Path | None = None, *, create_if_missing: bool = True) -> 
 
     if isinstance(raw.get("treat_inhibitor_as_activity"), bool):
         cfg.treat_inhibitor_as_activity = bool(raw["treat_inhibitor_as_activity"])
+
+    summary = raw.get("summary")
+    if isinstance(summary, dict):
+        target = summary.get("daily_target_minutes")
+        if isinstance(target, int) and target > 0:
+            cfg.daily_target_minutes = target
+
+        week_start = summary.get("week_start")
+        if isinstance(week_start, str):
+            week_start_norm = week_start.strip().lower()
+            if week_start_norm in {"iso", "sunday"}:
+                cfg.week_start = week_start_norm
 
     meta["loaded"] = True
     return cfg, meta

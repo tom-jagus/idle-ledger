@@ -65,8 +65,10 @@ pip install -e .
 
 | Command             | Purpose |
 | ------------------- | ------- |
-| `idle-ledger debug` | Print live snapshot + derived state + totals |
-| `idle-ledger run`   | Run tracker loop in foreground (Ctrl+C to stop) |
+| `idle-ledger debug`   | Print live snapshot + derived state + totals |
+| `idle-ledger run`     | Run tracker loop in foreground (Ctrl+C to stop) |
+| `idle-ledger status`  | Show service status + today totals |
+| `idle-ledger summary` | Show totals in hours/minutes |
 
 ## Configuration
 
@@ -80,6 +82,8 @@ Key settings:
 - `threshold_seconds` (default 300)
 - `poll_seconds` (default 2.0)
 - `journal_heartbeat_seconds` (default 30, min 30)
+- `[summary].daily_target_minutes` (default 480)
+- `[summary].week_start` (default "iso")
 - `treat_inhibitor_as_activity` (default true)
 
 ## systemd (user service)

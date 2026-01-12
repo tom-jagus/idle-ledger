@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -44,6 +45,7 @@ class LinuxProvider:
 
         self._hypridle: _HypridleState | None = None
         self._hypridle_attempted = False
+        self._hypridle_restart_after_mono: float | None = None
 
     def _get_user(self) -> str:
         if self._user is None:
@@ -117,6 +119,67 @@ class LinuxProvider:
             return locked_hint == "yes"
         return None
 
+    def _get_hyprland_locked(self) -> bool | None:
+        """Best-effort Hyprland lock detection.
+
+        On Hyprland, `loginctl LockedHint` is often not updated by `hyprlock`.
+
+        Strategy:
+        1) If a `hyprlock` process exists -> locked.
+        2) If `hyprctl -j layers` exposes a lock namespace -> locked.
+
+        Returns None if we can't determine anything.
+        """
+
+        # Process-based: works even if hyprlock uses session-lock protocol (not layer-shell).
+        if shutil.which("pgrep") is not None:
+            try:
+                p = subprocess.run(["pgrep", "-x", "hyprlock"], capture_output=True, text=True)
+                if p.returncode == 0:
+                    return True
+            except OSError:
+                pass
+
+        # Layer-based: some setups expose lock surfaces as layers.
+        if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+            return None
+        if shutil.which("hyprctl") is None:
+            return None
+
+        try:
+            result = subprocess.run(
+                ["hyprctl", "-j", "layers"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=True,
+            )
+            raw = json.loads(result.stdout)
+        except (
+            subprocess.CalledProcessError,
+            FileNotFoundError,
+            subprocess.TimeoutExpired,
+            json.JSONDecodeError,
+        ):
+            return None
+
+        # raw is: {monitor: {levels: {"0": [..], "1": [..], ...}}}
+        for monitor in raw.values():
+            levels = monitor.get("levels") if isinstance(monitor, dict) else None
+            if not isinstance(levels, dict):
+                continue
+            for layers in levels.values():
+                if not isinstance(layers, list):
+                    continue
+                for layer in layers:
+                    if not isinstance(layer, dict):
+                        continue
+                    namespace = layer.get("namespace")
+                    if isinstance(namespace, str) and "hyprlock" in namespace.lower():
+                        return True
+
+        return False
+
     def _get_idle_seconds_logind(self, session_id: str, now_mono: float) -> int | None:
         props = self._get_session_properties(session_id)
 
@@ -186,8 +249,30 @@ class LinuxProvider:
             return False
         return shutil.which("hypridle") is not None
 
-    def _ensure_hypridle(self) -> None:
-        if self._hypridle is not None or self._hypridle_attempted:
+    def _ensure_hypridle(self, now_mono: float) -> None:
+        if self._hypridle is not None:
+            return
+        if (
+            self._hypridle_restart_after_mono is not None
+            and now_mono < self._hypridle_restart_after_mono
+        ):
+            return
+        if self._hypridle_attempted:
+            return
+
+        if not self._should_try_hypridle():
+            # Conditions not met; allow later retries.
+            self._hypridle_attempted = False
+            return
+
+        self._hypridle_attempted = True
+
+        if (
+            self._hypridle_restart_after_mono is not None
+            and now_mono < self._hypridle_restart_after_mono
+        ):
+            return
+        if self._hypridle_attempted:
             return
         self._hypridle_attempted = True
 
@@ -208,9 +293,11 @@ class LinuxProvider:
 
             fifo_fd_read = os.open(fifo_path, os.O_RDONLY | os.O_NONBLOCK)
             fifo_fd_keepalive_write = os.open(fifo_path, os.O_WRONLY | os.O_NONBLOCK)
-        except OSError as e:
+        except OSError:
             # Fall back to logind; do not hard-fail the provider.
             self._hypridle = None
+            self._hypridle_attempted = False
+            self._hypridle_restart_after_mono = now_mono + 10.0
             return
 
         config_text = (
@@ -238,6 +325,8 @@ class LinuxProvider:
                 fifo_path.unlink()
             except OSError:
                 pass
+            self._hypridle_attempted = False
+            self._hypridle_restart_after_mono = now_mono + 10.0
             return
 
         try:
@@ -254,6 +343,8 @@ class LinuxProvider:
                 fifo_path.unlink()
             except OSError:
                 pass
+            self._hypridle_attempted = False
+            self._hypridle_restart_after_mono = now_mono + 10.0
             return
 
         self._hypridle = _HypridleState(
@@ -269,9 +360,12 @@ class LinuxProvider:
             return
 
         if self._hypridle.process.poll() is not None:
-            # Hypridle died. Keep the fifo open but stop using it.
+            # Hypridle died (e.g. killed externally). Stop using it and allow a
+            # later re-attempt with backoff.
             self._hypridle.last_error = "hypridle_exited"
             self._hypridle = None
+            self._hypridle_attempted = False
+            self._hypridle_restart_after_mono = now_mono + 5.0
             return
 
         try:
@@ -280,6 +374,8 @@ class LinuxProvider:
             return
         except OSError:
             self._hypridle = None
+            self._hypridle_attempted = False
+            self._hypridle_restart_after_mono = now_mono + 10.0
             return
 
         if not data:
@@ -314,37 +410,49 @@ class LinuxProvider:
                 provider_meta={"error": "no_session_found"},
             )
 
+        locked_method = "loginctl"
         locked = self._get_locked(self._session_id)
+
+        hypr_locked = self._get_hyprland_locked()
+        if hypr_locked is not None:
+            locked = hypr_locked
+            locked_method = "hyprland"
+
         inhibited = self._get_inhibited()
 
-        self._ensure_hypridle()
+        self._ensure_hypridle(now_mono)
         if self._hypridle is not None:
             self._drain_hypridle_events(now_mono)
 
-            if self._hypridle.is_idle and self._hypridle.idle_start_mono is not None:
-                idle_seconds = int(max(0.0, now_mono - self._hypridle.idle_start_mono))
-            else:
-                idle_seconds = 0
+            state = self._hypridle
+            if state is not None:
+                if state.is_idle and state.idle_start_mono is not None:
+                    idle_seconds = int(max(0.0, now_mono - state.idle_start_mono))
+                else:
+                    idle_seconds = 0
 
-            provider_meta.update(
-                {
-                    "method": "hypridle",
-                    "session_id": self._session_id,
-                    "hypridle_pid": self._hypridle.process.pid,
-                }
-            )
+                provider_meta.update(
+                    {
+                        "method": "hypridle",
+                        "session_id": self._session_id,
+                        "hypridle_pid": state.process.pid,
+                        "locked_method": locked_method,
+                    }
+                )
 
-            return Snapshot(
-                now_wall=now_wall,
-                now_mono=now_mono,
-                idle_seconds=idle_seconds,
-                locked=locked,
-                inhibited=inhibited,
-                provider_meta=provider_meta,
-            )
+                return Snapshot(
+                    now_wall=now_wall,
+                    now_mono=now_mono,
+                    idle_seconds=idle_seconds,
+                    locked=locked,
+                    inhibited=inhibited,
+                    provider_meta=provider_meta,
+                )
 
         idle_seconds = self._get_idle_seconds_logind(self._session_id, now_mono)
-        provider_meta.update({"method": "loginctl", "session_id": self._session_id})
+        provider_meta.update(
+            {"method": "loginctl", "session_id": self._session_id, "locked_method": locked_method}
+        )
 
         return Snapshot(
             now_wall=now_wall,
@@ -360,6 +468,8 @@ class LinuxProvider:
 
         state = self._hypridle
         self._hypridle = None
+        self._hypridle_attempted = False
+        self._hypridle_restart_after_mono = None
         if state is None:
             return
 

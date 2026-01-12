@@ -158,17 +158,72 @@ def test_provider_get_snapshot_locked():
     provider._session_id = "2"
 
     with patch.object(provider, "_get_inhibited") as mock_inhib:
-        with patch.object(provider, "_get_session_properties") as mock_props:
-            mock_inhib.return_value = None
-            mock_props.return_value = {
-                "State": "active",
-                "IdleHint": "no",
-                "IdleSinceHintMonotonic": "0",
-                "LockedHint": "yes",
-            }
+        with patch.object(provider, "_get_hyprland_locked") as mock_hypr_locked:
+            with patch.object(provider, "_get_session_properties") as mock_props:
+                mock_inhib.return_value = None
+                mock_hypr_locked.return_value = None
+                mock_props.return_value = {
+                    "State": "active",
+                    "IdleHint": "no",
+                    "IdleSinceHintMonotonic": "0",
+                    "LockedHint": "yes",
+                }
 
-            snapshot = provider.get_snapshot()
-            assert snapshot.locked is True
+                snapshot = provider.get_snapshot()
+                assert snapshot.locked is True
+
+
+def test_provider_get_snapshot_locked_prefers_hyprland_detector():
+    provider = _make_provider()
+    provider._user = "test"
+    provider._session_id = "2"
+
+    with patch.object(provider, "_get_inhibited") as mock_inhib:
+        with patch.object(provider, "_get_hyprland_locked") as mock_hypr_locked:
+            with patch.object(provider, "_get_session_properties") as mock_props:
+                mock_inhib.return_value = None
+                mock_hypr_locked.return_value = True
+                mock_props.return_value = {
+                    "State": "active",
+                    "IdleHint": "no",
+                    "IdleSinceHintMonotonic": "0",
+                    "LockedHint": "no",
+                }
+
+                snapshot = provider.get_snapshot()
+                assert snapshot.locked is True
+                assert (snapshot.provider_meta or {}).get("locked_method") == "hyprland"
+
+
+def test_provider_get_snapshot_hypridle_exit_falls_back_without_crash():
+    provider = LinuxProvider(threshold_seconds=300, prefer_hypridle=True)
+    provider._user = "test"
+    provider._session_id = "2"
+
+    fake_proc = MagicMock()
+    fake_proc.poll.return_value = 1
+    fake_proc.pid = 123
+
+    provider._hypridle = MagicMock()
+    provider._hypridle.process = fake_proc
+    provider._hypridle.fifo_fd_read = 0
+    provider._hypridle.fifo_fd_keepalive_write = 0
+    provider._hypridle.fifo_path = MagicMock()
+    provider._hypridle.config_path = MagicMock()
+    provider._hypridle.is_idle = False
+    provider._hypridle.idle_start_mono = None
+
+    with patch.object(provider, "_get_inhibited") as mock_inhib:
+        with patch.object(provider, "_get_hyprland_locked") as mock_hypr_locked:
+            with patch.object(provider, "_get_idle_seconds_logind") as mock_idle:
+                mock_inhib.return_value = None
+                mock_hypr_locked.return_value = None
+                mock_idle.return_value = 0
+
+                snapshot = provider.get_snapshot()
+
+    assert snapshot.idle_seconds == 0
+    assert (snapshot.provider_meta or {}).get("method") == "loginctl"
 
 
 def test_provider_get_snapshot_no_session():

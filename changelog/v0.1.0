@@ -1,0 +1,53 @@
+# v0.1.0 — Hyprland-first Linux tracker + one-line install
+
+## Highlights
+
+- Hyprland-first idle detection using `hypridle` events (with `loginctl` fallback)
+- Daily journal persistence + per-day JSONL transition logs
+- Simple CLI: `idle-ledger debug`, `idle-ledger run`, `idle-ledger init`
+- User-local installer (`curl | sh`) and GitHub Release artifacts
+
+## What’s Included
+
+### Linux idle detection
+- Prefers `hypridle` when running under Hyprland (robust Wayland idle detection)
+- Falls back to `systemd-logind` via `loginctl` when `hypridle` isn’t available
+- Detects idle inhibitors via `loginctl list-inhibitors` (video/calls usually prevent idle)
+
+### Storage (XDG)
+- Base data dir: `~/.local/share/idle-ledger/` (or `$XDG_DATA_HOME/idle-ledger/`)
+- Daily journal: `daily-journal/YYYY-MM-DD.json`
+- Transition logs: `transition-logs/YYYY-MM-DD.jsonl`
+
+Journals are written atomically (temp + fsync + rename) and include per-block `seconds`.
+
+### Config
+- Config file: `~/.config/idle-ledger/config.toml` (auto-created on first run)
+- Key settings:
+  - `threshold_seconds`
+  - `poll_seconds`
+  - `journal_heartbeat_seconds` (default 30s, minimum 30s)
+  - `treat_inhibitor_as_activity`
+
+### CLI
+- `idle-ledger debug` — print live snapshots/state
+- `idle-ledger run` — run tracker loop in foreground (Ctrl+C)
+- `idle-ledger init` — install + enable the systemd user service
+
+### systemd user service
+- `idle-ledger init` writes a unit to `~/.config/systemd/user/idle-ledger.service` and enables it.
+
+## Install (Linux x86_64)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tom-jagus/idle-ledger/main/install.sh | sh
+idle-ledger init
+```
+
+This installs `idle-ledger` to `~/.local/bin/idle-ledger`.
+
+## Notes / Known Limitations
+
+- Release artifacts currently target **Linux x86_64 only**.
+- Downtime handling: the journal checkpoints the current block’s end periodically; gaps between last checkpoint and restart are not counted.
+- Windows support is planned but not included in this release.

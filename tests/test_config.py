@@ -23,6 +23,10 @@ def test_load_config_parses_values():
             "journal_heartbeat_seconds = 10\n"
             "treat_inhibitor_as_activity = false\n"
             "\n"
+            "[summary]\n"
+            "daily_target_minutes = 500\n"
+            "week_start = 'sunday'\n"
+            "\n"
             "[linux]\n"
             "prefer_hypridle = false\n",
             encoding="utf-8",
@@ -35,5 +39,7 @@ def test_load_config_parses_values():
     assert cfg.threshold_seconds == 123
     assert cfg.poll_seconds == 4.5
     assert cfg.journal_heartbeat_seconds == 30
+    assert cfg.daily_target_minutes == 500
+    assert cfg.week_start == "sunday"
     assert cfg.treat_inhibitor_as_activity is False
     assert linux["prefer_hypridle"] is False

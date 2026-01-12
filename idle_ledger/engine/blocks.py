@@ -64,13 +64,21 @@ class BlockManager:
             and self._current_block.type == State.ACTIVITY
             and new_state == State.BREAK
         ):
-            self._current_block.end = threshold_subtract
+            # Guard against time anomalies (e.g. threshold_subtract earlier than the
+            # block start after a midnight rollover).
+            end_time = threshold_subtract
+            if end_time < self._current_block.start:
+                end_time = self._current_block.start
+            if end_time > now:
+                end_time = now
+            self._current_block.end = end_time
+            next_start = end_time
         else:
             self._current_block.end = now
+            next_start = now
 
         self.blocks.append(self._current_block)
-        start_time = threshold_subtract if threshold_subtract else now
-        self._current_block = Block(type=new_state, start=start_time, end=None)
+        self._current_block = Block(type=new_state, start=next_start, end=None)
 
     def get_totals(self) -> Totals:
         """Calculate totals from blocks."""
@@ -79,7 +87,7 @@ class BlockManager:
 
         for block in self.blocks:
             end = block.end or datetime.now(block.start.tzinfo)
-            duration = int((end - block.start).total_seconds())
+            duration = max(0, int((end - block.start).total_seconds()))
 
             if block.type == State.ACTIVITY:
                 activity += duration
@@ -88,7 +96,7 @@ class BlockManager:
 
         if self._current_block:
             end = self._current_block.end or datetime.now(self._current_block.start.tzinfo)
-            duration = int((end - self._current_block.start).total_seconds())
+            duration = max(0, int((end - self._current_block.start).total_seconds()))
 
             if self._current_block.type == State.ACTIVITY:
                 activity += duration

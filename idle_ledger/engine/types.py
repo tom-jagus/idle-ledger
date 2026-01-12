@@ -12,6 +12,8 @@ class State(Enum):
 DEFAULT_THRESHOLD_SECONDS: Final[int] = 300
 DEFAULT_POLL_SECONDS: Final[float] = 2.0
 DEFAULT_JOURNAL_HEARTBEAT_SECONDS: Final[int] = 30
+DEFAULT_DAILY_TARGET_MINUTES: Final[int] = 480
+DEFAULT_WEEK_START: Final[str] = "iso"  # "iso" (Mon) or "sunday"
 
 
 @dataclass
@@ -20,6 +22,10 @@ class Config:
     treat_inhibitor_as_activity: bool = True
     poll_seconds: float = DEFAULT_POLL_SECONDS
     journal_heartbeat_seconds: int = DEFAULT_JOURNAL_HEARTBEAT_SECONDS
+
+    # Summary/reporting settings
+    daily_target_minutes: int = DEFAULT_DAILY_TARGET_MINUTES
+    week_start: str = DEFAULT_WEEK_START
 
 
 @dataclass

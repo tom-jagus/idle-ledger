@@ -118,10 +118,11 @@ def test_block_manager_first_block_creates_open_block():
     now = datetime.now(timezone.utc)
     manager.transition(State.ACTIVITY, now)
 
-    assert manager._current_block is not None
-    assert manager._current_block.type == State.ACTIVITY
-    assert manager._current_block.start == now
-    assert manager._current_block.end is None
+    current = manager.get_current_block()
+    assert current is not None
+    assert current.type == State.ACTIVITY
+    assert current.start == now
+    assert current.end is None
     assert len(manager.blocks) == 0
 
 
@@ -132,10 +133,10 @@ def test_block_manager_no_change_when_same_state():
     now = datetime.now(timezone.utc)
     manager.transition(State.ACTIVITY, now)
 
-    initial_block_id = id(manager._current_block)
+    initial_block_id = id(manager.get_current_block())
     manager.transition(State.ACTIVITY, now + timedelta(seconds=10))
 
-    assert id(manager._current_block) == initial_block_id
+    assert id(manager.get_current_block()) == initial_block_id
     assert len(manager.blocks) == 0
 
 
@@ -153,8 +154,11 @@ def test_block_manager_activity_to_break_normal():
     assert manager.blocks[0].type == State.ACTIVITY
     assert manager.blocks[0].start == now
     assert manager.blocks[0].end == break_time
-    assert manager._current_block.type == State.BREAK
-    assert manager._current_block.start == break_time
+
+    current = manager.get_current_block()
+    assert current is not None
+    assert current.type == State.BREAK
+    assert current.start == break_time
 
 
 def test_block_manager_break_to_activity_normal():
@@ -169,8 +173,11 @@ def test_block_manager_break_to_activity_normal():
 
     assert len(manager.blocks) == 1
     assert manager.blocks[0].type == State.BREAK
-    assert manager._current_block.type == State.ACTIVITY
-    assert manager._current_block.start == activity_time
+
+    current = manager.get_current_block()
+    assert current is not None
+    assert current.type == State.ACTIVITY
+    assert current.start == activity_time
 
 
 def test_block_manager_threshold_subtraction():
@@ -186,10 +193,40 @@ def test_block_manager_threshold_subtraction():
 
     assert len(manager.blocks) == 1
     assert manager.blocks[0].end == threshold_subtract
-    assert manager._current_block.start == threshold_subtract
 
+    current = manager.get_current_block()
+    assert current is not None
+    assert current.start == threshold_subtract
+
+    assert manager.blocks[0].end is not None
     activity_duration = (manager.blocks[0].end - manager.blocks[0].start).total_seconds()
     assert activity_duration == 300
+
+
+def test_block_manager_threshold_subtraction_never_makes_negative_block():
+    from idle_ledger.engine.blocks import BlockManager
+
+    manager = BlockManager()
+    start = datetime(2026, 1, 12, 0, 0, tzinfo=timezone.utc)
+    manager.transition(State.ACTIVITY, start)
+
+    # Simulate a "break decided" after rollover where the computed threshold_subtract
+    # is earlier than the activity block start.
+    now = start + timedelta(hours=6)
+    threshold_subtract = start - timedelta(minutes=10)
+
+    manager.transition(State.BREAK, now, threshold_subtract=threshold_subtract)
+
+    assert manager.blocks[0].start == start
+    assert manager.blocks[0].end == start
+
+    assert manager.blocks[0].end is not None
+    assert (manager.blocks[0].end - manager.blocks[0].start).total_seconds() == 0
+
+    current = manager.get_current_block()
+    assert current is not None
+    assert current.type == State.BREAK
+    assert current.start == start
 
 
 def test_block_manager_multiple_transitions():
@@ -207,7 +244,10 @@ def test_block_manager_multiple_transitions():
     assert manager.blocks[0].type == State.ACTIVITY
     assert manager.blocks[1].type == State.BREAK
     assert manager.blocks[2].type == State.ACTIVITY
-    assert manager._current_block.type == State.BREAK
+
+    current = manager.get_current_block()
+    assert current is not None
+    assert current.type == State.BREAK
 
 
 def test_block_manager_totals_empty():

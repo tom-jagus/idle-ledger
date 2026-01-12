@@ -13,6 +13,19 @@ def _build_parser() -> argparse.ArgumentParser:
     run_p = sub.add_parser("run", help="Run tracker loop (foreground)")
     run_p.set_defaults(_handler="run")
 
+    status_p = sub.add_parser("status", help="Show service status and totals")
+    status_p.set_defaults(_handler="status")
+
+    summary_p = sub.add_parser("summary", help="Show totals in hours/minutes")
+    summary_p.add_argument(
+        "period",
+        nargs="?",
+        default="today",
+        choices=["today", "yesterday", "week"],
+        help="Summary period (default: today)",
+    )
+    summary_p.set_defaults(_handler="summary")
+
     init_p = sub.add_parser("init", help="Install + enable systemd user service")
     init_p.add_argument("--force", action="store_true", help="Overwrite existing unit")
     init_p.set_defaults(_handler="init")
@@ -35,6 +48,16 @@ def main(argv: list[str] | None = None) -> int:
 
         run_main()
         return 0
+
+    if args._handler == "status":
+        from idle_ledger.cli.status import main as status_main
+
+        return int(status_main())
+
+    if args._handler == "summary":
+        from idle_ledger.cli.summary import main as summary_main
+
+        return int(summary_main(period=str(getattr(args, "period", "today"))))
 
     if args._handler == "init":
         from idle_ledger.cli.init import main as init_main
