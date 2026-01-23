@@ -43,6 +43,10 @@ Contains:
 
 Write is **atomic** (temp + fsync + rename). Journals are checkpointed periodically so crashes lose at most ~`journal_heartbeat_seconds` of precision.
 
+Notes:
+- The current block is stored as `open: true` with a periodically updated `end` timestamp.
+- If the process is down (crash/restart), the time between the last checkpoint and the restart is an implicit gap and is not counted as activity or break.
+
 ## Installation (Linux)
 
 User-local install (no venv):
@@ -70,6 +74,10 @@ pip install -e .
 | `idle-ledger status`  | Show service status + today totals |
 | `idle-ledger summary` | Show totals in hours/minutes |
 
+Tips:
+- `idle-ledger debug` refreshes in-place when run in a terminal (no scrolling wall of logs).
+- `idle-ledger status` also shows the last recorded provider mode (whether the service is using `hypridle` vs `loginctl`).
+
 ## Configuration
 
 Config file (TOML):
@@ -96,6 +104,8 @@ idle-ledger init
 # (or, if you want to overwrite an existing unit)
 idle-ledger init --force
 ```
+
+This installs a systemd **user** unit, so the tracker starts automatically after you log in.
 
 Manual alternative:
 ```bash

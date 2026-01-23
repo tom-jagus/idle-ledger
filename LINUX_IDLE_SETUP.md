@@ -24,8 +24,11 @@ On Hyprland, `systemd-logind` idle hints (`loginctl`) are commonly unreliable, s
 - Respects DBus/systemd inhibitors by default (video/calls usually prevent idle)
 
 ### Requirements
-- Running under Hyprland (requires `HYPRLAND_INSTANCE_SIGNATURE` in the environment)
+- Running under Hyprland.
 - `hypridle` installed and runnable in `$PATH`
+
+Notes:
+- When running as a systemd user service, `idle-ledger` will try to auto-detect missing Wayland/Hyprland environment (e.g. `WAYLAND_DISPLAY`, `HYPRLAND_INSTANCE_SIGNATURE`) from `$XDG_RUNTIME_DIR`.
 
 ## loginctl (systemd-logind)
 

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`idle-ledger` is an automatic activity/break tracking utility for Linux (Wayland) and Windows. Target Python: 3.14+
+`idle-ledger` is an automatic activity/break tracking utility for Linux (Wayland) and Windows. Target Python: 3.11+
 
 **Critical:** SPEC.md is the source of truth. If code contradicts SPEC.md, the code is wrong.
 
@@ -34,8 +34,11 @@ mypy idle_ledger/  # Type check
 
 ### Running
 ```bash
-python -m idle_ledger.cli debug  # Debug mode
-python -m idle_ledger.cli run    # Run tracker daemon
+idle-ledger debug  # Debug mode
+idle-ledger run    # Run tracker daemon (foreground)
+idle-ledger init   # Install and enable systemd user service
+idle-ledger status # Service status + today totals
+idle-ledger summary [today|yesterday|week]
 ```
 
 ---
