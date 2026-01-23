@@ -245,9 +245,63 @@ class LinuxProvider:
     def _should_try_hypridle(self) -> bool:
         if not self._prefer_hypridle:
             return False
-        if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+
+        if shutil.which("hypridle") is None:
             return False
-        return shutil.which("hypridle") is not None
+
+        # systemd user services may not inherit WAYLAND_DISPLAY; try to discover it.
+        runtime_dir = self._get_runtime_dir()
+        if os.environ.get("WAYLAND_DISPLAY"):
+            wayland_ok = True
+        else:
+            wayland_ok = self._detect_wayland_display(runtime_dir) is not None
+
+        if not wayland_ok:
+            return False
+
+        # hypridle also needs to know which Hyprland instance to connect to.
+        if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+            return True
+
+        return self._detect_hyprland_instance_signature(runtime_dir) is not None
+
+    def _get_runtime_dir(self) -> str:
+        env_dir = os.environ.get("XDG_RUNTIME_DIR")
+        if env_dir:
+            return env_dir
+        # Reasonable fallback for user services.
+        return f"/run/user/{os.getuid()}"
+
+    def _detect_wayland_display(self, runtime_dir: str) -> str | None:
+        try:
+            candidates = [
+                p for p in sorted(Path(runtime_dir).glob("wayland-*")) if not p.name.endswith(".lock")
+            ]
+        except OSError:
+            return None
+
+        # Prefer wayland-1, then wayland-0, then any.
+        for name in ("wayland-1", "wayland-0"):
+            if (Path(runtime_dir) / name).exists():
+                return name
+        if candidates:
+            return candidates[0].name
+        return None
+
+    def _detect_hyprland_instance_signature(self, runtime_dir: str) -> str | None:
+        """Find a Hyprland instance signature from runtime dir."""
+
+        hypr_dir = Path(runtime_dir) / "hypr"
+        try:
+            entries = sorted([p for p in hypr_dir.iterdir() if p.is_dir()])
+        except OSError:
+            return None
+
+        for p in entries:
+            if (p / ".socket2.sock").exists():
+                return p.name
+
+        return entries[0].name if entries else None
 
     def _ensure_hypridle(self, now_mono: float) -> None:
         if self._hypridle is not None:
@@ -261,25 +315,11 @@ class LinuxProvider:
             return
 
         if not self._should_try_hypridle():
-            # Conditions not met; allow later retries.
-            self._hypridle_attempted = False
             return
 
         self._hypridle_attempted = True
 
-        if (
-            self._hypridle_restart_after_mono is not None
-            and now_mono < self._hypridle_restart_after_mono
-        ):
-            return
-        if self._hypridle_attempted:
-            return
-        self._hypridle_attempted = True
-
-        if not self._should_try_hypridle():
-            return
-
-        runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
+        runtime_dir = self._get_runtime_dir() or tempfile.gettempdir()
         work_dir = Path(runtime_dir) / "idle-ledger"
         work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -335,6 +375,7 @@ class LinuxProvider:
                 text=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                env=self._hypridle_env(runtime_dir),
             )
         except OSError:
             os.close(fifo_fd_read)
@@ -354,6 +395,22 @@ class LinuxProvider:
             config_path=config_path,
             process=process,
         )
+
+    def _hypridle_env(self, runtime_dir: str) -> dict[str, str]:
+        env = dict(os.environ)
+        env.setdefault("XDG_RUNTIME_DIR", runtime_dir)
+
+        if "WAYLAND_DISPLAY" not in env:
+            display = self._detect_wayland_display(runtime_dir)
+            if display:
+                env["WAYLAND_DISPLAY"] = display
+
+        if "HYPRLAND_INSTANCE_SIGNATURE" not in env:
+            sig = self._detect_hyprland_instance_signature(runtime_dir)
+            if sig:
+                env["HYPRLAND_INSTANCE_SIGNATURE"] = sig
+
+        return env
 
     def _drain_hypridle_events(self, now_mono: float) -> None:
         if self._hypridle is None:
@@ -410,8 +467,15 @@ class LinuxProvider:
                 provider_meta={"error": "no_session_found"},
             )
 
+        props = self._get_session_properties(self._session_id)
+
         locked_method = "loginctl"
-        locked = self._get_locked(self._session_id)
+        locked: bool | None
+        locked_hint = props.get("LockedHint")
+        if locked_hint in ("yes", "no"):
+            locked = locked_hint == "yes"
+        else:
+            locked = None
 
         hypr_locked = self._get_hyprland_locked()
         if hypr_locked is not None:
@@ -449,9 +513,47 @@ class LinuxProvider:
                     provider_meta=provider_meta,
                 )
 
-        idle_seconds = self._get_idle_seconds_logind(self._session_id, now_mono)
+        # systemd/logind idle hints are microseconds from CLOCK_MONOTONIC.
+        idle_seconds: int | None
+        idle_hint = props.get("IdleHint")
+        idle_since_raw = props.get("IdleSinceHintMonotonic")
+
+        logind_idle_supported = False
+        idle_since_us: int | None = None
+        if idle_since_raw:
+            try:
+                idle_since_us = int(idle_since_raw)
+                logind_idle_supported = idle_since_us > 0
+            except ValueError:
+                idle_since_us = None
+
+        if idle_hint == "no":
+            idle_seconds = 0
+        elif idle_hint == "yes" and idle_since_us is not None and idle_since_us > 0:
+            now_us = int(now_mono * 1_000_000)
+            if idle_since_us > now_us:
+                idle_seconds = None
+            else:
+                idle_seconds = int((now_us - idle_since_us) / 1_000_000)
+        else:
+            idle_seconds = None
+
+        # Critical Hyprland safeguard:
+        # If hypridle is unavailable (often killed by external scripts) and logind idle
+        # hints are not supported, we cannot reliably detect inactivity.
+        # In that situation, prefer counting time as BREAK instead of ACTIVITY.
+        if idle_seconds == 0 and not logind_idle_supported and self._prefer_hypridle and self._should_try_hypridle():
+            provider_meta["idle_forced_break"] = True
+            provider_meta["idle_reason"] = "no_logind_idle"
+            idle_seconds = self._threshold_seconds + 1
+
         provider_meta.update(
-            {"method": "loginctl", "session_id": self._session_id, "locked_method": locked_method}
+            {
+                "method": "loginctl",
+                "session_id": self._session_id,
+                "locked_method": locked_method,
+                "logind_idle_supported": logind_idle_supported,
+            }
         )
 
         return Snapshot(

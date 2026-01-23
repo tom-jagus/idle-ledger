@@ -226,6 +226,37 @@ def test_provider_get_snapshot_hypridle_exit_falls_back_without_crash():
     assert (snapshot.provider_meta or {}).get("method") == "loginctl"
 
 
+def test_provider_hyprland_forces_break_when_logind_idle_missing(monkeypatch):
+    # Simulate a Wayland/Hyprland-like environment where we prefer hypridle
+    # but logind idle hints are missing.
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-1")
+
+    provider = LinuxProvider(threshold_seconds=300, prefer_hypridle=True)
+    provider._user = "test"
+    provider._session_id = "2"
+
+    with patch.object(provider, "_ensure_hypridle") as mock_ensure:
+        with patch.object(provider, "_should_try_hypridle") as mock_should_try:
+            with patch.object(provider, "_get_inhibited") as mock_inhib:
+                with patch.object(provider, "_get_hyprland_locked") as mock_hypr_locked:
+                    with patch.object(provider, "_get_session_properties") as mock_props:
+                        mock_ensure.return_value = None
+                        mock_should_try.return_value = True
+                        mock_inhib.return_value = None
+                        mock_hypr_locked.return_value = None
+                        mock_props.return_value = {
+                            "State": "active",
+                            "IdleHint": "no",
+                            "IdleSinceHintMonotonic": "0",
+                            "LockedHint": "no",
+                        }
+
+                        snapshot = provider.get_snapshot()
+
+    assert snapshot.idle_seconds == 301
+    assert (snapshot.provider_meta or {}).get("idle_forced_break") is True
+
+
 def test_provider_get_snapshot_no_session():
     provider = _make_provider()
     provider._user = "test"

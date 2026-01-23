@@ -52,6 +52,10 @@ class TransitionLogger:
             "provider": {
                 "method": meta.get("method"),
                 "session_id": meta.get("session_id"),
+                "locked_method": meta.get("locked_method"),
+                "logind_idle_supported": meta.get("logind_idle_supported"),
+                "idle_forced_break": meta.get("idle_forced_break"),
+                "idle_reason": meta.get("idle_reason"),
             },
         }
         self.append(when=when, event=event)
