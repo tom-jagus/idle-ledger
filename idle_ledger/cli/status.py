@@ -53,12 +53,41 @@ def _read_today_journal(today: date) -> dict | None:
         return None
 
 
+def _read_last_provider_mode(today: date) -> dict | None:
+    path = transition_log_path(today)
+    if not path.exists():
+        return None
+
+    try:
+        with path.open("rb") as f:
+            try:
+                f.seek(0, 2)
+                size = f.tell()
+                f.seek(max(0, size - 65536), 0)
+            except OSError:
+                return None
+            data = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+
+    for line in reversed([ln for ln in data.splitlines() if ln.strip()]):
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and obj.get("event") == "provider_mode":
+            return obj
+
+    return None
+
+
 def main() -> int:
     today = date.today()
 
     config, config_meta = load_config(create_if_missing=False)
     sysd = _systemd_status()
     journal = _read_today_journal(today)
+    provider_mode = _read_last_provider_mode(today)
 
     print("idle-ledger status")
 
@@ -77,6 +106,29 @@ def main() -> int:
     print(f"data logs dir: {get_transition_logs_dir()}")
     print(f"today journal: {daily_journal_path(today)}")
     print(f"today transitions: {transition_log_path(today)}")
+
+    if isinstance(provider_mode, dict):
+        provider_raw = provider_mode.get("provider")
+        env_raw = provider_mode.get("env")
+        provider: dict = provider_raw if isinstance(provider_raw, dict) else {}
+        env: dict = env_raw if isinstance(env_raw, dict) else {}
+        print(
+            "provider mode: "
+            f"method={provider.get('method')} "
+            f"hypridle_pid={provider.get('hypridle_pid')} "
+            f"locked_method={provider.get('locked_method')} "
+            f"logind_idle_supported={provider.get('logind_idle_supported')} "
+            f"idle_forced_break={provider.get('idle_forced_break')} "
+            f"idle_reason={provider.get('idle_reason')}"
+        )
+        print(
+            "provider env: "
+            f"XDG_RUNTIME_DIR={env.get('XDG_RUNTIME_DIR')} "
+            f"WAYLAND_DISPLAY={env.get('WAYLAND_DISPLAY')} "
+            f"HYPRLAND_INSTANCE_SIGNATURE={env.get('HYPRLAND_INSTANCE_SIGNATURE')}"
+        )
+    else:
+        print("provider mode: unavailable")
 
     if journal is None:
         print("today totals: unavailable (no journal yet)")

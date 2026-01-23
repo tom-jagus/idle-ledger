@@ -1,4 +1,5 @@
 import time
+import os
 from datetime import date, datetime, time as dt_time, timedelta
 
 from idle_ledger.engine.blocks import BlockManager
@@ -40,6 +41,7 @@ def main():
     block_manager: BlockManager | None = None
     current_state: State | None = None
     last_heartbeat_mono: float | None = None
+    provider_mode_logged = False
 
     print("Starting idle-ledger run mode (Ctrl+C to stop)")
     print(f"Config: {config_meta.get('path')}")
@@ -58,6 +60,42 @@ def main():
 
                 print(f"Transition log: {transition_log_path(current_day)}")
                 print(f"Daily journal: {daily_journal_path(current_day)}")
+
+            # One-time provider diagnostics (useful when systemd env breaks Wayland idle).
+            if not provider_mode_logged:
+                meta = snapshot.provider_meta or {}
+                logger.append(
+                    when=snapshot.now_wall,
+                    event={
+                        "event": "provider_mode",
+                        "provider": {
+                            "method": meta.get("method"),
+                            "session_id": meta.get("session_id"),
+                            "hypridle_pid": meta.get("hypridle_pid"),
+                            "locked_method": meta.get("locked_method"),
+                            "logind_idle_supported": meta.get("logind_idle_supported"),
+                            "idle_forced_break": meta.get("idle_forced_break"),
+                            "idle_reason": meta.get("idle_reason"),
+                        },
+                        "env": {
+                            "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR"),
+                            "WAYLAND_DISPLAY": os.environ.get("WAYLAND_DISPLAY"),
+                            "HYPRLAND_INSTANCE_SIGNATURE": os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"),
+                        },
+                    },
+                )
+
+                print(
+                    "provider_mode: "
+                    f"method={meta.get('method')} "
+                    f"hypridle_pid={meta.get('hypridle_pid')} "
+                    f"locked_method={meta.get('locked_method')} "
+                    f"logind_idle_supported={meta.get('logind_idle_supported')} "
+                    f"idle_forced_break={meta.get('idle_forced_break')} "
+                    f"idle_reason={meta.get('idle_reason')}"
+                )
+
+                provider_mode_logged = True
 
             snap_day = snapshot.now_wall.date()
             if snap_day != current_day:
