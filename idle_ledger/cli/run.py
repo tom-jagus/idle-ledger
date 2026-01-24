@@ -6,6 +6,7 @@ from idle_ledger.engine.blocks import BlockManager
 from idle_ledger.engine.state import classify_state
 from idle_ledger.engine.types import State
 from idle_ledger.providers.linux import LinuxProvider
+from idle_ledger.providers.sleep_linux import SleepEventKind, SleepWatcher
 from idle_ledger.store import (
     TransitionLogger,
     daily_journal_path,
@@ -35,6 +36,9 @@ def main():
         prefer_hypridle=bool(linux_opts.get("prefer_hypridle", True)),
     )
 
+    sleep_watcher = SleepWatcher()
+    sleep_available = sleep_watcher.start()
+
     logger = TransitionLogger()
 
     current_day: date | None = None
@@ -45,6 +49,11 @@ def main():
 
     print("Starting idle-ledger run mode (Ctrl+C to stop)")
     print(f"Config: {config_meta.get('path')}")
+    if not sleep_available:
+        message = "Sleep watcher: disabled (dbus unavailable)"
+        if sleep_watcher.last_error():
+            message = f"Sleep watcher: disabled ({sleep_watcher.last_error()})"
+        print(message)
 
     try:
         while True:
@@ -60,6 +69,35 @@ def main():
 
                 print(f"Transition log: {transition_log_path(current_day)}")
                 print(f"Daily journal: {daily_journal_path(current_day)}")
+
+            for event in sleep_watcher.drain():
+                if block_manager is None or current_day is None:
+                    continue
+
+                if event.kind == SleepEventKind.SUSPEND:
+                    logger.append(
+                        when=event.when,
+                        event={
+                            "event": "sleep",
+                            "phase": "suspend",
+                            "prev_state": current_state.value if current_state else None,
+                        },
+                    )
+
+                    if current_state != State.BREAK:
+                        block_manager.transition(State.BREAK, event.when)
+                        current_state = State.BREAK
+                        write_day_atomic(day=current_day, config=config, manager=block_manager)
+                        last_heartbeat_mono = snapshot.now_mono
+                else:
+                    logger.append(
+                        when=event.when,
+                        event={
+                            "event": "sleep",
+                            "phase": "resume",
+                            "state": current_state.value if current_state else None,
+                        },
+                    )
 
             # One-time provider diagnostics (useful when systemd env breaks Wayland idle).
             if not provider_mode_logged:
@@ -80,7 +118,9 @@ def main():
                         "env": {
                             "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR"),
                             "WAYLAND_DISPLAY": os.environ.get("WAYLAND_DISPLAY"),
-                            "HYPRLAND_INSTANCE_SIGNATURE": os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"),
+                            "HYPRLAND_INSTANCE_SIGNATURE": os.environ.get(
+                                "HYPRLAND_INSTANCE_SIGNATURE"
+                            ),
                         },
                     },
                 )

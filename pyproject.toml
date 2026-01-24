@@ -5,6 +5,7 @@ description = "Automatic activity vs break tracking for Linux (Wayland) and Wind
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "dbus-next>=0.2.3",
     "platformdirs>=4.3.10",
 ]
 
@@ -37,3 +38,6 @@ check_untyped_defs = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.setuptools]
+packages = ["idle_ledger"]
